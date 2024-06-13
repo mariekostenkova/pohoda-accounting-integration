@@ -1,0 +1,91 @@
+{
+  "ExpenseDataInput": {
+    "party_identity": {
+      "vat_tax_payer": true,
+      "restaurant": false,
+      "document_details": {
+        "receipt": {
+          "pohoda_vat_type": "PN"
+        }
+      },
+      "party_business_id": "CZ12345678",
+      "party_db_name": "Podnik XYZ"
+    },
+    "document_data": {
+      "expense_type": "Faktura",
+      "expense_document_description": "Popis výdajového dokladu",
+      "document_number": "20230612-001",
+      "payment_reference": "PR20230612",
+      "date_issue": "2024-06-12T00:00:00",
+      "date_payment": "2024-06-13T00:00:00",
+      "date_due": "2024-06-20T00:00:00",
+      "date_taxcontrol": "2024-06-14T00:00:00",
+      "payment": {
+        "payment_method": "bankovní převod",
+        "amount": 1500.50,
+        "currency": "CZK"
+      },
+      "supplier": {
+        "name": "Dodavatel ABC",
+        "vat_number": "CZ87654321",
+        "address": {
+          "street": "Hlavní 123",
+          "city": "Praha",
+          "postal_code": "11000",
+          "country": "Česká republika"
+        }
+      },
+      "place_of_purchase": {
+        "street": "Vedlejší 456",
+        "city": "Brno",
+        "postal_code": "60200",
+        "country": "Česká republika"
+      },
+      "accounting": "Účetnictví 2024",
+      "corroborative_invoice": true,
+      "record_id": "550e8400-e29b-41d4-a716-446655440000",
+      "record_id_external": "ext-20230612-001",
+      "record_created": "2024-06-12T08:00:00Z",
+      "record_last_updated": "2024-06-12T08:30:00Z",
+      "state": "active",
+      "source": "interní systém",
+      "binary_file": "base64_encoded_file_data",
+      "binary_file_filename": "faktura_20230612.pdf",
+      "binary_file_received": "2024-06-12T08:05:00Z",
+      "binary_file_checksum": "abc123checksum",
+      "binary_file_pdf": "base64_encoded_pdf_data",
+      "binary_file_pdf_created": "2024-06-12T08:10:00Z",
+      "document_plaintext": "Textový obsah dokumentu",
+      "llm_stats": {
+        "word_count": 150,
+        "character_count": 900
+      },
+      "client_specific_data": {
+        "client_field1": "Hodnota1",
+        "client_field2": "Hodnota2"
+      },
+      "backlink_url": "https://example.com/document/20230612-001",
+      "harvest_problems": [
+        {
+          "problem_type": "missing_data",
+          "description": "Chybí údaje o platbě"
+        }
+      ],
+      "harvested": true,
+      "document_content_warning": false
+    }
+  },
+  "Attachment": {
+    "attachment_metadata": {
+      "external_id": "ext-20230612-001",
+      "record_id": "550e8400-e29b-41d4-a716-446655440000",
+      "document_name": "příloha_faktura_20230612.pdf"
+    },
+    "attachment_binary": "base64_encoded_attachment_data"
+  },
+  "UploadExpenseDataOutput": {
+    "responseBody": {
+      "external_id": "ext-20230612-001"
+    }
+  }
+}

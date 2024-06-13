@@ -1,0 +1,1 @@
+from app.services.integration_pohoda.IntegrationPohodaService import IntegrationPohodaService
