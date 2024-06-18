@@ -9,24 +9,27 @@ from GrantonLogTrace import GrantonTracerError, GrantonTracing, setup_logging
 from PartyIdentity import PartyIdentity
 from pydantic import BaseModel
 
-from app.config import (INI_FILE, INPUT_DIR, OUTPUT_DIR, PASSWORD, POHODA_PATH,
-                        USER_POHODA)
+from app.config import (LOGGER_NAME,
+                        INI_FILE, INPUT_DIR, OUTPUT_DIR,
+                        POHODA_EXECUTABLE_PATH, POHODA_USER, POHODA_PASSWORD
+                        )
 from app.models import Attachment
 from app.services.integration_pohoda.AccountingSystemIntegration import (
-    AccountingSystemIntegration, json_to_xml)
+    AccountingSystemIntegration, json_to_xml, AccountingSystemIntegrationError)
 
-logger = setup_logging()
+logger = setup_logging(logger_name=LOGGER_NAME)
 logger.info('Pohoda Accounting System Integration is starting up.')
-workers = multiprocessing.cpu_count() * 2
-logger.debug(f"Number of workers: {workers}")
-
+# workers = multiprocessing.cpu_count() * 2
+# logger.debug(f"Number of workers: {workers}")
 
 app = FastAPI(title="Pohoda Accounting System Integration")
+
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler_logger(request, exc):
     logger.error(f"HTTPException: {exc.status_code} {exc.detail}")
     return await http_exception_handler(request, exc)
+
 
 async def extract_expense_document(request: Request):
     """Extracts an expense document from a JSON request."""
@@ -40,6 +43,7 @@ async def extract_expense_document(request: Request):
         logger.error(f"Failed to extract ExpenseDocument: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid expense document data")
 
+
 async def extract_party_identity(request: Request):
     """Extracts and constructs a PartyIdentity object from the JSON body of an incoming request."""
     try:
@@ -52,32 +56,49 @@ async def extract_party_identity(request: Request):
         logger.error(f"Failed to extract PartyIdentity: {str(e)}")
         raise HTTPException(status_code=400, detail="Invalid party identity data")
 
+
 @app.post("/upload-expense-data")
 async def upload_data(request: Request):
     """Endpoint to upload expense data."""
     try:
         party_identity = await extract_party_identity(request)
         expense_document = await extract_expense_document(request)
-        logger.debug(f"Party ID: {party_identity.party_business_id}, Expense Document ID: {expense_document.document_number}")
-        json_data = {
-            "ExpenseDataInput": {
-                "party_identity": party_identity.dict(),
-                "document_data": expense_document.dict()
-            }
-        }
-        accounting_integration = AccountingSystemIntegration(POHODA_PATH, USER_POHODA, PASSWORD, INI_FILE)
-        result_filename = json_to_xml(json_data)
-        await accounting_integration.process_xml_files(INPUT_DIR)
-        await accounting_integration.poll_folder(OUTPUT_DIR, result_filename, 5)
-        result_file_path = os.path.join(OUTPUT_DIR, result_filename)
-        external_id = await accounting_integration.parse_pohoda_xml(result_file_path)
-        return {"external_id": external_id}
-
+        record_id = expense_document.record_id
     except HTTPException as e:
         raise e
     except Exception as e:
         logger.error(f"Failed to upload expense data: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to upload expense data")
+    else:
+        logger.debug(f'New request received.', extra={'record_id': record_id, 'request_data': request.json()})
+
+    try:
+        json_data = {
+            "ExpenseDataInput": {
+                "party_identity": party_identity.dict(),
+                "document_data": expense_document.to_dict()
+            }
+        }
+    except:
+        raise HTTPException(status_code=500, detail="Failed to convert ExpenseDocument to JSON")
+
+    accounting_integration = AccountingSystemIntegration(POHODA_EXECUTABLE_PATH,
+                                                         POHODA_USER,
+                                                         POHODA_PASSWORD,
+                                                         INI_FILE)
+    result_filename = json_to_xml(json_data)
+    try:
+        await accounting_integration.process_xml_files(INPUT_DIR)
+    except AccountingSystemIntegrationError as acc_e:
+        logger.error(f"Error processing XML files: {acc_e}")
+        raise HTTPException(status_code=500, detail="Error processing XML files")
+
+    await accounting_integration.poll_folder(OUTPUT_DIR, result_filename, 5)
+    result_file_path = os.path.join(OUTPUT_DIR, result_filename)
+    external_id = await accounting_integration.parse_pohoda_xml(result_file_path)
+    return {"external_id": external_id}
+
+
 
 @app.post("/upload-expense-attachment")
 async def upload_expense_attachment(request: Request):
@@ -101,11 +122,3 @@ async def upload_expense_attachment(request: Request):
     except Exception as e:
         logger.error(f"Error processing attachment: {e}")
         raise HTTPException(status_code=400, detail="Error processing attachment")
-
-@app.get('/health')
-async def health_check():
-    return {'status': 'OK'}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, workers=workers)

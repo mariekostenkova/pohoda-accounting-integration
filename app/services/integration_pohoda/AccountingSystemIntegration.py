@@ -4,8 +4,10 @@ import subprocess
 import time
 import xml.etree.ElementTree as ET
 from enum import Enum
+from app.config import LOGGER_NAME
 
-logger = logging.getLogger(__name__)
+
+# logger = logging.getLogger(LOGGER_NAME)
 
 
 class FileStatus(Enum):
@@ -13,7 +15,12 @@ class FileStatus(Enum):
     NOT_CHANGED = "NOT_CHANGED"
     ERROR = "ERROR"
 
+
 class AccountingSystemIntegrationError(Exception):
+    """ This exception.... """
+
+
+class PollingError(AccountingSystemIntegrationError):
     pass
 
 
