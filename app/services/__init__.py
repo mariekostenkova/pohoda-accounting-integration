@@ -1,1 +1,2 @@
-from app.services.integration_pohoda.IntegrationPohodaService import IntegrationPohodaService
+from app.services.integration_pohoda.AccountingSystemIntegration import \
+    AccountingSystemIntegration

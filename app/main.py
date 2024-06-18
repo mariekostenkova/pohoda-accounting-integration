@@ -1,62 +1,111 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+import base64
 import multiprocessing
-import logging
-import json
 import os
 
-from app.models import Attachment, ExpenseDocument
-from app.services.integration_pohoda.IntegrationPohodaService import transformation_json_to_xml
-from app.config import OUTPUT_PATH
+from CanonicalDataModels import ExpenseDocument
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.exception_handlers import http_exception_handler
+from GrantonLogTrace import GrantonTracerError, GrantonTracing, setup_logging
+from PartyIdentity import PartyIdentity
+from pydantic import BaseModel
+
+from app.config import (INI_FILE, INPUT_DIR, OUTPUT_DIR, PASSWORD, POHODA_PATH,
+                        USER_POHODA)
+from app.models import Attachment
+from app.services.integration_pohoda.AccountingSystemIntegration import (
+    AccountingSystemIntegration, json_to_xml)
+
+logger = setup_logging()
+logger.info('Pohoda Accounting System Integration is starting up.')
+workers = multiprocessing.cpu_count() * 2
+logger.debug(f"Number of workers: {workers}")
 
 
 app = FastAPI(title="Pohoda Accounting System Integration")
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+@app.exception_handler(HTTPException)
+async def http_exception_handler_logger(request, exc):
+    logger.error(f"HTTPException: {exc.status_code} {exc.detail}")
+    return await http_exception_handler(request, exc)
 
+async def extract_expense_document(request: Request):
+    """Extracts an expense document from a JSON request."""
+    try:
+        body = await request.json()
+        expense_document_data = body.get('expense_document')
+        if not expense_document_data:
+            raise ValueError("Missing 'expense_document' in request body")
+        return ExpenseDocument(**expense_document_data)
+    except Exception as e:
+        logger.error(f"Failed to extract ExpenseDocument: {str(e)}")
+        raise HTTPException(status_code=400, detail="Invalid expense document data")
 
-@app.post("/upload-expense-attachment")
-async def upload_expense_attachment(attachment: Attachment):
-    return {"status_code": "200"}
-
+async def extract_party_identity(request: Request):
+    """Extracts and constructs a PartyIdentity object from the JSON body of an incoming request."""
+    try:
+        body = await request.json()
+        party_identity_data = body.get('party_identity')
+        if not party_identity_data:
+            raise ValueError("Missing 'party_identity' in request body")
+        return PartyIdentity(**party_identity_data)
+    except Exception as e:
+        logger.error(f"Failed to extract PartyIdentity: {str(e)}")
+        raise HTTPException(status_code=400, detail="Invalid party identity data")
 
 @app.post("/upload-expense-data")
-async def upload_expense_data():
+async def upload_data(request: Request):
+    """Endpoint to upload expense data."""
     try:
-        directory_path = OUTPUT_PATH
-        json_files = [f for f in os.listdir(directory_path) if f.endswith('.json')]
+        party_identity = await extract_party_identity(request)
+        expense_document = await extract_expense_document(request)
+        logger.debug(f"Party ID: {party_identity.party_business_id}, Expense Document ID: {expense_document.document_number}")
+        json_data = {
+            "ExpenseDataInput": {
+                "party_identity": party_identity.dict(),
+                "document_data": expense_document.dict()
+            }
+        }
+        accounting_integration = AccountingSystemIntegration(POHODA_PATH, USER_POHODA, PASSWORD, INI_FILE)
+        result_filename = json_to_xml(json_data)
+        await accounting_integration.process_xml_files(INPUT_DIR)
+        await accounting_integration.poll_folder(OUTPUT_DIR, result_filename, 5)
+        result_file_path = os.path.join(OUTPUT_DIR, result_filename)
+        external_id = await accounting_integration.parse_pohoda_xml(result_file_path)
+        return {"external_id": external_id}
 
-        for json_file in json_files:
-            file_path = os.path.join(directory_path, json_file)
-            with open(file_path, 'r') as f:
-                json_data = json.load(f)
-                expense_document = ExpenseDocument(**json_data)
-
-                input_file = os.path.splitext(json_file)[0] + ".xml"
-                xml_filepath = transformation_json_to_xml(expense_document.dict(), input_file)
-
-        return {"status": "Successful"}
+    except HTTPException as e:
+        raise e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f'Error processing files: {e}')
+        logger.error(f"Failed to upload expense data: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to upload expense data")
 
+@app.post("/upload-expense-attachment")
+async def upload_expense_attachment(request: Request):
+    """Endpoint to upload an expense attachment."""
+    try:
+        data = await request.json()
+        external_id = data.get("external_id")
+        if not external_id:
+            raise ValueError("Missing 'external_id' in request body")
+        attachment_data = data.get("attachment")
+        if not attachment_data:
+            raise ValueError("Missing 'attachment' in request body")
+        attachment = Attachment(**attachment_data)
+        file_content = base64.b64decode(attachment.content)
+        logger.debug(f"Attachment received for document: {attachment.document_name} and external_id: {external_id}")
+        attachment_path = os.path.join(INPUT_DIR, attachment.document_name)
+        with open(attachment_path, 'wb') as f:
+            f.write(file_content)
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        logger.error(f"Error processing attachment: {e}")
+        raise HTTPException(status_code=400, detail="Error processing attachment")
 
-def execute_pohoda_command(user: str, password: str, input_filename: str):
-  pass
-
-def move_or_file_delete():
-  pass
-
-def count_worker():
-    cpu_count = multiprocessing.cpu_count()
-    workers = 2 * cpu_count
-    return workers
-
-
-
+@app.get('/health')
+async def health_check():
+    return {'status': 'OK'}
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
-
-
-
+    uvicorn.run(app, host="0.0.0.0", port=8000, workers=workers)

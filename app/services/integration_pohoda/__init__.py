@@ -1,2 +1,1 @@
-from .IntegrationPohodaService import IntegrationPohodaService
-
+from .AccountingSystemIntegration import AccountingSystemIntegration
